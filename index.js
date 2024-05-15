@@ -1,4 +1,9 @@
 const express = require('express');
+const { auth, requiresAuth } = require('express-openid-connect');
+const dotenv = require('dotenv');
+
+dotenv.config();
+
 const app = express();
 
 app.use(express.json());
@@ -7,9 +12,20 @@ let ADMINS = [];
 let USERS = [];
 let COURSES = [];
 
+const config = {
+  authRequired: false,
+  auth0Logout: true,
+  secret: process.env.SECRET || 'baa071959f8bddd6daa7a9772418028a5e82cdf57af55447bb007277cf16d72c',
+  baseURL: process.env.BASE_URL || 'http://localhost:3000',
+  clientID: process.env.CLIENT_ID || 'bOC6K7rTqx3l5cffSRjxj6wxw6I6o5ib',
+  issuerBaseURL: process.env.ISSUER_BASE_URL || 'https://dev-in2iu1kl3x43b1oq.us.auth0.com'
+};
+
+app.use(auth(config));
+
+// Admin Authentication Middleware (Deprecated with SSO)
 const adminAuthentication = (req, res, next) => {
   const { username, password } = req.headers;
-
   const admin = ADMINS.find(a => a.username === username && a.password === password);
   if (admin) {
     next();
@@ -18,11 +34,12 @@ const adminAuthentication = (req, res, next) => {
   }
 };
 
+// User Authentication Middleware (Deprecated with SSO)
 const userAuthentication = (req, res, next) => {
   const { username, password } = req.headers;
   const user = USERS.find(u => u.username === username && u.password === password);
   if (user) {
-    req.user = user;  // Add user object to the request
+    req.user = user;
     next();
   } else {
     res.status(403).json({ message: 'User authentication failed' });
@@ -44,15 +61,14 @@ app.post('/admin/login', adminAuthentication, (req, res) => {
   res.json({ message: 'Logged in successfully' });
 });
 
-app.post('/admin/courses', adminAuthentication, (req, res) => {
+app.post('/admin/courses', requiresAuth(), (req, res) => {
   const course = req.body;
-
   course.id = Date.now(); // use timestamp as course ID
   COURSES.push(course);
   res.json({ message: 'Course created successfully', courseId: course.id });
 });
 
-app.put('/admin/courses/:courseId', adminAuthentication, (req, res) => {
+app.put('/admin/courses/:courseId', requiresAuth(), (req, res) => {
   const courseId = parseInt(req.params.courseId);
   const course = COURSES.find(c => c.id === courseId);
   if (course) {
@@ -63,12 +79,11 @@ app.put('/admin/courses/:courseId', adminAuthentication, (req, res) => {
   }
 });
 
-app.get('/admin/courses', adminAuthentication, (req, res) => {
+app.get('/admin/courses', requiresAuth(), (req, res) => {
   res.json({ courses: COURSES });
 });
 
 app.post('/users/signup', (req, res) => {
-  // const user = {...req.body, purchasedCourses: []};
   const user = {
     username: req.body.username,
     password: req.body.password,
@@ -82,18 +97,12 @@ app.post('/users/login', userAuthentication, (req, res) => {
   res.json({ message: 'Logged in successfully' });
 });
 
-app.get('/users/courses', userAuthentication, (req, res) => {
-  // COURSES.filter(c => c.published)
-  let filteredCourses = [];
-  for (let i = 0; i<COURSES.length; i++) {
-    if (COURSES[i].published) {
-      filteredCourses.push(COURSES[i]);
-    }
-  }
+app.get('/users/courses', requiresAuth(), (req, res) => {
+  let filteredCourses = COURSES.filter(c => c.published);
   res.json({ courses: filteredCourses });
 });
 
-app.post('/users/courses/:courseId', userAuthentication, (req, res) => {
+app.post('/users/courses/:courseId', requiresAuth(), (req, res) => {
   const courseId = Number(req.params.courseId);
   const course = COURSES.find(c => c.id === courseId && c.published);
   if (course) {
@@ -104,18 +113,8 @@ app.post('/users/courses/:courseId', userAuthentication, (req, res) => {
   }
 });
 
-app.get('/users/purchasedCourses', userAuthentication, (req, res) => {
-  // const purchasedCourses = COURSES.filter(c => req.user.purchasedCourses.includes(c.id));
-  // We need to extract the complete course object from COURSES
-  // which have ids which are present in req.user.purchasedCourses
-  var purchasedCourseIds = req.user.purchasedCourses; [1, 4];
-  var purchasedCourses = [];
-  for (let i = 0; i<COURSES.length; i++) {
-    if (purchasedCourseIds.indexOf(COURSES[i].id) !== -1) {
-      purchasedCourses.push(COURSES[i]);
-    }
-  }
-
+app.get('/users/purchasedCourses', requiresAuth(), (req, res) => {
+  const purchasedCourses = COURSES.filter(c => req.user.purchasedCourses.includes(c.id));
   res.json({ purchasedCourses });
 });
 
